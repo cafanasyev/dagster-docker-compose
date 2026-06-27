@@ -32,10 +32,12 @@ Local **deployment** for a standard `create-dagster` / `uv` project.
    .pytest_cache
    .ruff_cache
    .tmp_dagster_home_*
+   .import_linter_cache
    __pycache__/
    **/__pycache__/
    *.pyc
    *.egg-info
+   Makefile
    EOF
    ```
 
