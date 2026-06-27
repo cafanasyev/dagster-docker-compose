@@ -8,6 +8,9 @@ services:
       POSTGRES_USER: ${DAGSTER_POSTGRES_USER}
       POSTGRES_PASSWORD: ${DAGSTER_POSTGRES_PASSWORD}
       POSTGRES_DB: ${DAGSTER_POSTGRES_DB}
+    volumes:
+      # Persist run/event/schedule storage across `docker compose down`
+      - dagster_postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DAGSTER_POSTGRES_USER} -d ${DAGSTER_POSTGRES_DB}"]
       interval: 10s
@@ -34,6 +37,13 @@ services:
       DAGSTER_POSTGRES_DB: ${DAGSTER_POSTGRES_DB}
       DAGSTER_CURRENT_IMAGE: ${DAGSTER_USER_CODE_IMAGE}
       DAGSTER_MODULE: ${DAGSTER_MODULE}
+    # The gRPC code server answers Dagster's own health check on port 4000
+    healthcheck:
+      test: ["CMD", "dagster", "api", "grpc-health-check", "-p", "4000"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   # This service runs dagster-webserver, which loads your user code from the user code container.
   # Since our instance uses the QueuedRunCoordinator, any runs submitted from the webserver will be put on
@@ -60,6 +70,13 @@ services:
       DAGSTER_POSTGRES_USER: ${DAGSTER_POSTGRES_USER}
       DAGSTER_POSTGRES_PASSWORD: ${DAGSTER_POSTGRES_PASSWORD}
       DAGSTER_POSTGRES_DB: ${DAGSTER_POSTGRES_DB}
+    # The webserver serves HTTP on 3000; check the port is accepting connections
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 3000), timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     volumes: # Make docker client accessible so we can terminate containers from the webserver
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp/io_manager_storage:/tmp/io_manager_storage
@@ -67,7 +84,7 @@ services:
       postgresql:
         condition: service_healthy
       user_code:
-        condition: service_started
+        condition: service_healthy
 
   # This service runs the dagster-daemon process, which is responsible for taking runs
   # off of the queue and launching them, as well as creating runs from schedules or sensors.
@@ -81,6 +98,13 @@ services:
       - dagster-daemon
       - run
     restart: on-failure
+    # The daemon has no HTTP port; check its heartbeat with Dagster's own liveness command
+    healthcheck:
+      test: ["CMD", "dagster-daemon", "liveness-check"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     environment:
       DAGSTER_POSTGRES_USER: ${DAGSTER_POSTGRES_USER}
       DAGSTER_POSTGRES_PASSWORD: ${DAGSTER_POSTGRES_PASSWORD}
@@ -92,7 +116,11 @@ services:
       postgresql:
         condition: service_healthy
       user_code:
-        condition: service_started
+        condition: service_healthy
+
+# Named volume so Postgres data survives `docker compose down` (use `down -v` to wipe it)
+volumes:
+  dagster_postgres_data:
 
 # Give the default network a fixed name so the DockerRunLauncher can attach run containers to it
 networks:

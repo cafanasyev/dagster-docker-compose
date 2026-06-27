@@ -38,6 +38,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Put the project venv on PATH so launched run containers can exec `dagster` directly
 ENV PATH="/opt/dagster/app/.venv/bin:$PATH"
 
+RUN groupadd -r dagster \
+    && useradd -r -g dagster -d /opt/dagster -s /usr/sbin/nologin dagster \
+    && chown -R dagster:dagster /opt/dagster
+USER dagster
+
 # Run dagster gRPC server on port 4000
 
 EXPOSE 4000
