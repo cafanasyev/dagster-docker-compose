@@ -8,15 +8,32 @@ FROM python:${PYTHON_VERSION}-slim
 # Use uv to install the project from its lockfile (uv.lock) for reproducible deps
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
+# uv build tuning: precompile to .pyc, copy out of the cache mount (no cross-fs
+# hardlink warnings), and never download a second Python — use the base image's.
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=0
+
 # Add repository code
 
 WORKDIR /opt/dagster/app
 
+# Install locked deps; the project's pyproject must include dagster-postgres + dagster-docker
+# Layer keyed only on pyproject.toml + uv.lock, so it's reused until deps change.
+# The cache mount persists uv's download/wheel cache across builds; --no-dev skips
+# test/lint tooling that the runtime gRPC server doesn't need.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    uv sync --frozen --no-install-project --no-dev
+
 # Copy the whole create-dagster project (build context) instead of a single file
+# Editing source only invalidates from here down — the deps layer above stays cached.
 COPY . .
 
-# Install locked deps; the project's pyproject must include dagster-postgres + dagster-docker
-RUN uv sync --frozen
+# Install just your project into the existing env (deps already resolved above)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
 # Put the project venv on PATH so launched run containers can exec `dagster` directly
 ENV PATH="/opt/dagster/app/.venv/bin:$PATH"
@@ -26,4 +43,4 @@ ENV PATH="/opt/dagster/app/.venv/bin:$PATH"
 EXPOSE 4000
 
 # Load the code location by module (DAGSTER_MODULE from env), run inside the project's uv env
-CMD uv run dagster api grpc -h 0.0.0.0 -p 4000 -m ${DAGSTER_MODULE}.definitions
+CMD ["sh", "-c", "exec dagster api grpc -h 0.0.0.0 -p 4000 -m ${DAGSTER_MODULE}.definitions"]

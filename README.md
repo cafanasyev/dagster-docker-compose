@@ -18,21 +18,48 @@ Local **deployment** for a standard `create-dagster` / `uv` project.
    uv add dagster-postgres dagster-docker
    ```
 
-3. Configure this template: `cp .env.example .env` and edit the values
+3. Add a `.dockerignore` to your project so the image build skips local junk —
+   especially a stale local `.venv`, which would otherwise overwrite the one
+   built inside the image and break it:
+
+   ```bash
+   cat > .dockerignore <<'EOF'
+   .venv
+   .git
+   .gitignore
+   .idea
+   .dg
+   .pytest_cache
+   .ruff_cache
+   .tmp_dagster_home_*
+   __pycache__/
+   **/__pycache__/
+   *.pyc
+   *.egg-info
+   EOF
+   ```
+
+4. Configure this template: `cp .env.example .env` and edit the values
    (project path, module name, credentials, image name, port).
 
-4. Build and start the stack:
+5. Build and start the stack:
 
    ```bash
    docker compose up --build
    ```
 
-5. Open the UI at `http://localhost:<DAGSTER_WEBSERVER_PORT>` (default 3000).
+6. Open the UI at `http://localhost:<DAGSTER_WEBSERVER_PORT>` (default 3000).
+
+7. To re-build user code container run:
+
+   ```bash
+   docker compose up -d --build user_code
+   ```
 
 ## Files
 
 - `docker-compose.yml` — postgres, user_code (gRPC), webserver, daemon.
-- `Dockerfile_user_code` — builds your project with `uv sync --frozen`.
+- `Dockerfile_user_code` — builds your project; installs deps and source in separate layers so code edits don't trigger a full dependency reinstall.
 - `Dockerfile_dagster` — webserver + daemon image.
 - `dagster.yaml` / `workspace.yaml` — Dagster instance + code location config.
 - `.env.example` — required variables.
